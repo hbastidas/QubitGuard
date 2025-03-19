@@ -12,6 +12,8 @@ QubitGuard is a Python package that provides post-quantum cryptographic tools fo
 
 ## Installation
 
+NOTE: Installs from this repository due to a Installs from this repository due to a dependency that does not exist in the Python Index package.
+
 ```bash
 pip install qubitguard
 ```
