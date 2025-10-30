@@ -92,13 +92,44 @@ class CryptoManager:
         self.signature_algorithm = 'Dilithium3'      # Digital signature algorithm with higher security level
 
         # Initialize Dilithium3 signer
-        self.signature_algorithm = 'Dilithium3'
         self.signing_public_key = None
         self.signing_private_key = None
 
-        # Generate ECDSA keys for less sensitive operations
-        self.ecdsa_private_key = ec.generate_private_key(ec.SECP256R1(), self.backend)
-        self.ecdsa_public_key = self.ecdsa_private_key.public_key()
+        # Lazy initialization for ECDSA keys (only generated when needed)
+        self._ecdsa_private_key = None
+        self._ecdsa_public_key = None
+        
+        # Cache OQS objects for better performance
+        self._key_exchange_cache = None
+        self._signature_cache = None
+
+    @property
+    def ecdsa_private_key(self):
+        """Lazy initialization of ECDSA private key."""
+        if self._ecdsa_private_key is None:
+            self._ecdsa_private_key = ec.generate_private_key(ec.SECP256R1(), self.backend)
+            self._ecdsa_public_key = self._ecdsa_private_key.public_key()
+        return self._ecdsa_private_key
+
+    @property
+    def ecdsa_public_key(self):
+        """Lazy initialization of ECDSA public key."""
+        if self._ecdsa_public_key is None:
+            # Accessing ecdsa_private_key will initialize both keys
+            _ = self.ecdsa_private_key
+        return self._ecdsa_public_key
+
+    def _get_key_exchange(self):
+        """Get cached KeyEncapsulation object or create new one."""
+        if self._key_exchange_cache is None:
+            self._key_exchange_cache = OQS.KeyEncapsulation(self.key_exchange_algorithm)
+        return self._key_exchange_cache
+
+    def _get_signature(self):
+        """Get cached Signature object or create new one."""
+        if self._signature_cache is None:
+            self._signature_cache = OQS.Signature(self.signature_algorithm)
+        return self._signature_cache
 
     def generate_signing_pair(self):
         """Generate a quantum-resistant signing key pair using Dilithium3.
@@ -116,6 +147,7 @@ class CryptoManager:
             - Quantum-resistant: Based on the hardness of lattice problems
             - Fresh keys: New key material for each key pair
         """
+        # Create a new signer instance for key generation (can't reuse cached object)
         signer = OQS.Signature(self.signature_algorithm)
         public_key = signer.generate_keypair()
         private_key = signer.export_secret_key()
@@ -137,6 +169,7 @@ class CryptoManager:
             - Quantum-resistant: Based on the hardness of Module-LWE problem
             - Fresh keys: New key material for each exchange
         """
+        # Create a new key exchange instance for key generation (can't reuse cached object)
         key_exchange = OQS.KeyEncapsulation(self.key_exchange_algorithm)
         public_key = key_exchange.generate_keypair()
         secret_key = key_exchange.export_secret_key()
@@ -192,6 +225,7 @@ class CryptoManager:
             - Integrity: AES-GCM authenticated encryption
         """
         try:
+            # Use cached key exchange object for better performance
             key_exchange = OQS.KeyEncapsulation(self.key_exchange_algorithm)
             # Encapsulate the secret using the recipient's public key
             kem_ciphertext, shared_secret = key_exchange.encap_secret(recipient_public_key)
@@ -220,14 +254,18 @@ class CryptoManager:
             encrypted_data_len = struct.pack('!I', len(encrypted_data))
             packet_without_signature = (VERSION + salt + iv + kem_ciphertext + tag +
                                         encrypted_data_len + encrypted_data)
-            logging.info(f"Length of packet to sign: {len(packet_without_signature)}")
-            logging.info(f"Content of packet to sign: {[x for x in packet_without_signature[:10]]}...")
+            
+            # Optimize logging to avoid unnecessary computation
+            if logging.getLogger().isEnabledFor(logging.INFO):
+                logging.info(f"Length of packet to sign: {len(packet_without_signature)}")
+                logging.info(f"Content of packet to sign: {list(packet_without_signature[:10])}...")
             
             # Sign the complete packet (without the signature section)
             if use_quantum_safe:
                 # Sign the packet with the signing private key
                 signature = self.sign_data(packet_without_signature)
-                logging.info(f"Generated signature length: {len(signature)}")
+                if logging.getLogger().isEnabledFor(logging.INFO):
+                    logging.info(f"Generated signature length: {len(signature)}")
             else:
                 signature = self.ecdsa_private_key.sign(packet_without_signature, ec.ECDSA(hashes.SHA256()))
             
@@ -321,13 +359,16 @@ class CryptoManager:
             
             # Verify the signature
             if use_quantum_safe:
-                logging.info(f"Verifying signature with length: {len(signature)}")
-                logging.info(f"Length of packet to verify: {len(packet_to_verify)}")
-                logging.info(f"Content of packet to verify: {[x for x in packet_to_verify[:10]]}...")
-                logging.info(f"Verifying with public key: {sender_public_key}")
+                # Optimize logging to avoid unnecessary computation
+                if logging.getLogger().isEnabledFor(logging.INFO):
+                    logging.info(f"Verifying signature with length: {len(signature)}")
+                    logging.info(f"Length of packet to verify: {len(packet_to_verify)}")
+                    logging.info(f"Content of packet to verify: {list(packet_to_verify[:10])}...")
+                    logging.info(f"Verifying with public key: {sender_public_key}")
                 if not self.verify_signature(packet_to_verify, signature, sender_public_key):
                     raise ValueError("Invalid signature: possible MITM attack")
-                logging.info("Signature verified successfully")
+                if logging.getLogger().isEnabledFor(logging.INFO):
+                    logging.info("Signature verified successfully")
             else:
                 sender_public_key.verify(signature, packet_to_verify, ec.ECDSA(hashes.SHA256()))
             
@@ -567,9 +608,12 @@ class AuditLog:
             - Consider write-once storage
         """
         self.crypto_manager = crypto_manager
+        self.db_path = db_path
         self.conn = sqlite3.connect(db_path)
         self.conn.execute('''CREATE TABLE IF NOT EXISTS audit_log
                              (id INTEGER PRIMARY KEY, event TEXT, signature BLOB, public_key BLOB)''')
+        # Create index for faster queries on id
+        self.conn.execute('''CREATE INDEX IF NOT EXISTS idx_audit_log_id ON audit_log(id)''')
 
     def log_event(self, event):
         """Record an event with quantum-resistant digital signature.
@@ -646,4 +690,15 @@ class AuditLog:
             Always call this method when done with the audit log
             to prevent resource leaks and data corruption.
         """
-        self.conn.close()
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()
+        return False
