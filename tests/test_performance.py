@@ -6,6 +6,7 @@ cryptographic operations to ensure optimizations are effective.
 
 import os
 import time
+import logging
 import pytest
 import tempfile
 from pathlib import Path
@@ -46,7 +47,7 @@ def test_lazy_ecdsa_initialization(crypto_manager):
     assert crypto_manager.ecdsa_public_key is not None
 
 
-def test_key_generation_performance(crypto_manager, caplog):
+def test_key_generation_performance(crypto_manager):
     """Benchmark key generation operations."""
     benchmark_iterations = 5
     times = []
@@ -60,7 +61,6 @@ def test_key_generation_performance(crypto_manager, caplog):
     avg_time = sum(times) / len(times)
     
     # Log timing information at INFO level for visibility in test output
-    import logging
     logging.info(f"Average key generation time: {avg_time:.4f} seconds")
     
     # Key generation should typically complete in reasonable time
@@ -105,7 +105,6 @@ def test_encryption_decryption_performance(crypto_manager):
     avg_decrypt_time = sum(decryption_times) / len(decryption_times)
     
     # Log timing information
-    import logging
     logging.info(f"Average encryption time: {avg_encrypt_time:.4f} seconds")
     logging.info(f"Average decryption time: {avg_decrypt_time:.4f} seconds")
     
@@ -151,7 +150,6 @@ def test_signing_verification_performance(crypto_manager):
     avg_verify_time = sum(verification_times) / len(verification_times)
     
     # Log timing information
-    import logging
     logging.info(f"Average signing time: {avg_sign_time:.4f} seconds")
     logging.info(f"Average verification time: {avg_verify_time:.4f} seconds")
     
@@ -186,7 +184,6 @@ def test_batch_file_operations(temp_dir):
     read_time = time.perf_counter() - start
     
     # Log timing information
-    import logging
     logging.info(f"Batch write time ({num_files} files): {write_time:.4f} seconds")
     logging.info(f"Batch read time ({num_files} files): {read_time:.4f} seconds")
     
@@ -249,7 +246,6 @@ def test_audit_log_indexed_queries(crypto_manager, temp_dir):
         avg_query_time = sum(query_times) / len(query_times)
         
         # Log timing information
-        import logging
         logging.info(f"Average audit log query time: {avg_query_time:.4f} seconds")
         
         # Queries should be fast with indexing
@@ -280,7 +276,6 @@ def test_large_data_encryption_performance(crypto_manager):
     decrypt_time = time.perf_counter() - start
     
     # Log timing information
-    import logging
     logging.info(f"Large data (100KB) encryption time: {encrypt_time:.4f} seconds")
     logging.info(f"Large data (100KB) decryption time: {decrypt_time:.4f} seconds")
     
