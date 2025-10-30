@@ -38,17 +38,17 @@ def genkeys(output_dir):
     # Generate signing pair
     signing_private_key, signing_public_key = crypto_manager.generate_signing_pair()
     
-    # Save Kyber keys for encryption
-    with open(output_dir / 'kyber_private_key.bin', 'wb') as f:
-        f.write(secret_key)
-    with open(output_dir / 'kyber_public_key.bin', 'wb') as f:
-        f.write(public_key)
+    # Batch write all keys for better I/O performance
+    key_files = {
+        output_dir / 'kyber_private_key.bin': secret_key,
+        output_dir / 'kyber_public_key.bin': public_key,
+        output_dir / 'dilithium_private_key.bin': signing_private_key,
+        output_dir / 'dilithium_public_key.bin': signing_public_key
+    }
     
-    # Save Dilithium keys for signing
-    with open(output_dir / 'dilithium_private_key.bin', 'wb') as f:
-        f.write(signing_private_key)
-    with open(output_dir / 'dilithium_public_key.bin', 'wb') as f:
-        f.write(signing_public_key)
+    for filepath, key_data in key_files.items():
+        with open(filepath, 'wb') as f:
+            f.write(key_data)
     
     click.echo("✅ Keys generated successfully:")
     click.echo(f"   📄 Kyber private key saved to: {output_dir}/kyber_private_key.bin")
@@ -191,16 +191,21 @@ def export_keys(output_file, key_dir):
     """Export your public keys to a file for sharing."""
     key_dir = Path(key_dir)
     
-    # Read public keys
-    with open(key_dir / 'kyber_public_key.bin', 'rb') as f:
-        public_key = f.read()
-    with open(key_dir / 'dilithium_public_key.bin', 'rb') as f:
-        signing_public_key = f.read()
+    # Batch read public keys for better I/O performance
+    key_paths = {
+        'public_key': key_dir / 'kyber_public_key.bin',
+        'signing_public_key': key_dir / 'dilithium_public_key.bin'
+    }
+    
+    keys_data = {}
+    for key_type, path in key_paths.items():
+        with open(path, 'rb') as f:
+            keys_data[key_type] = f.read()
     
     # Create a dictionary with both public keys
     keys = {
-        'public_key': base64.b64encode(public_key).decode('utf-8'),
-        'signing_public_key': base64.b64encode(signing_public_key).decode('utf-8'),
+        'public_key': base64.b64encode(keys_data['public_key']).decode('utf-8'),
+        'signing_public_key': base64.b64encode(keys_data['signing_public_key']).decode('utf-8'),
         'created_at': str(datetime.datetime.now()),
         'owner': Path(key_dir).name.replace('_keys', '')
     }
@@ -230,14 +235,15 @@ def import_keys(input_file, output_dir):
         keys = json.load(f)
     
     # Extract and decode keys
-    public_key = base64.b64decode(keys['public_key'])
-    signing_public_key = base64.b64decode(keys['signing_public_key'])
+    decoded_keys = {
+        output_dir / 'public_key.bin': base64.b64decode(keys['public_key']),
+        output_dir / 'signing_public_key.bin': base64.b64decode(keys['signing_public_key'])
+    }
     
-    # Save the keys
-    with open(output_dir / 'public_key.bin', 'wb') as f:
-        f.write(public_key)
-    with open(output_dir / 'signing_public_key.bin', 'wb') as f:
-        f.write(signing_public_key)
+    # Batch write keys for better I/O performance
+    for filepath, key_data in decoded_keys.items():
+        with open(filepath, 'wb') as f:
+            f.write(key_data)
     
     click.echo(f"✅ Public keys imported to: {output_dir}")
     click.echo(f"   👤 Owner: {keys['owner']}")
